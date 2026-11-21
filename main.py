@@ -11,6 +11,11 @@ SIZES = (3, 5, 13, 25)
 PERFORMANCE_REPETITIONS = 10
 TIE_EPSILON = 1e-9
 CASE_KEY = re.compile(r"^size_(\d+)_(.+)$")
+FAILURE_CATEGORY_LABELS = {
+    "DATA_SCHEMA": "데이터/스키마",
+    "LOGIC": "판정 로직",
+    "NUMERIC_COMPARISON": "수치 비교",
+}
 INPUT_FORMAT_ERROR = (
     "입력 형식 오류: 각 줄에 3개의 숫자를 공백으로 구분해 입력하세요."
 )
@@ -181,6 +186,38 @@ def decide_json_mode(cross_score: float, x_score: float) -> str:
     return "UNDECIDED"
 
 
+def diagnose_case_failure(result: Dict[str, Any]) -> Dict[str, str]:
+    if "reason" in result:
+        return {
+            "category": "DATA_SCHEMA",
+            "diagnosis": (
+                f"데이터/스키마 문제: {result['reason']} "
+                "행렬 차원·필수 필드·라벨·케이스 키를 확인하세요."
+            ),
+        }
+
+    score_difference = abs(result["cross_score"] - result["x_score"])
+    if result["actual"] == "UNDECIDED":
+        return {
+            "category": "NUMERIC_COMPARISON",
+            "diagnosis": (
+                f"수치 비교 문제: 점수 차이 {score_difference:g}가 "
+                f"epsilon {TIE_EPSILON:g} 미만이라 동점 처리됐습니다. "
+                "입력 값의 정밀도와 epsilon 기준, expected를 확인하세요."
+            ),
+        }
+
+    return {
+        "category": "LOGIC",
+        "diagnosis": (
+            f"판정 불일치: Cross={result['cross_score']:g}, "
+            f"X={result['x_score']:g}, actual={result['actual']}, "
+            f"expected={result['expected']}입니다. "
+            "필터와 패턴의 의미, MAC 점수 계산·라벨 연결, expected를 확인하세요."
+        ),
+    }
+
+
 def read_matrix(size: int, label: str) -> Matrix:
     print(f"{label} 행렬을 한 줄씩 입력하세요. (각 행 {size}개 숫자, 공백 구분)")
     values = []
@@ -216,10 +253,14 @@ def run_user_mode() -> None:
     if pattern_choice == "1":
         pattern = read_matrix(3, "패턴")
     else:
-        pattern_label = read_choice("생성할 패턴 (Cross/X): ", ("cross", "x"))
+        pattern_label = read_choice(
+            "생성할 패턴 (C/Cross/X): ", ("c", "cross", "x")
+        )
+        is_cross = pattern_label in ("c", "cross")
         generated_pattern = generate_patterns(3)
-        pattern = generated_pattern["Cross" if pattern_label == "cross" else "X"]
-        print(f"{'Cross' if pattern_label == 'cross' else 'X'} 패턴을 생성했습니다.")
+        label = "Cross" if is_cross else "X"
+        pattern = generated_pattern[label]
+        print(f"{label} 패턴을 생성했습니다.")
 
     score_a, time_a = timed_mac(pattern, filter_a)
     score_b, time_b = timed_mac(pattern, filter_b)
@@ -308,7 +349,7 @@ def _analyze_case(
     cross_score = mac(pattern, filters["Cross"])
     x_score = mac(pattern, filters["X"])
     actual = decide_json_mode(cross_score, x_score)
-    return {
+    result = {
         "id": case_id,
         "cross_score": cross_score,
         "x_score": x_score,
@@ -316,6 +357,9 @@ def _analyze_case(
         "expected": expected,
         "passed": actual == expected,
     }
+    if not result["passed"]:
+        result.update(diagnose_case_failure(result))
+    return result
 
 
 def analyze_json_data(path: Path = DATA_FILE) -> Dict[str, Any]:
@@ -336,11 +380,13 @@ def analyze_json_data(path: Path = DATA_FILE) -> Dict[str, Any]:
         try:
             results.append(_analyze_case(case_id, raw_case, raw_filters))
         except (TypeError, ValueError) as error:
-            results.append({
+            result = {
                 "id": str(case_id),
                 "passed": False,
                 "reason": str(error),
-            })
+            }
+            result.update(diagnose_case_failure(result))
+            results.append(result)
     return {
         "total": len(results),
         "passed": sum(result["passed"] for result in results),
@@ -354,16 +400,19 @@ def run_json_mode() -> None:
     try:
         report = analyze_json_data(DATA_FILE)
     except ValueError as error:
+        failure = {"id": "data.json", "reason": str(error), "passed": False}
+        failure.update(diagnose_case_failure(failure))
         report = {
             "total": 1,
             "passed": 0,
-            "failed": [{"id": "data.json", "reason": str(error)}],
-            "results": [],
+            "failed": [failure],
+            "results": [failure],
         }
 
     for result in report["results"]:
         if "reason" in result:
-            print(f"{result['id']}: FAIL - {result['reason']}")
+            category = FAILURE_CATEGORY_LABELS[result["category"]]
+            print(f"{result['id']}: FAIL [{category}] - {result['diagnosis']}")
         else:
             status = "PASS" if result["passed"] else "FAIL"
             print(
@@ -383,10 +432,8 @@ def run_json_mode() -> None:
     else:
         print("실패 케이스:")
         for failure in report["failed"]:
-            reason = failure["reason"] if "reason" in failure else (
-                f"expected={failure['expected']}, actual={failure['actual']}"
-            )
-            print(f"- {failure['id']}: {reason}")
+            category = FAILURE_CATEGORY_LABELS[failure["category"]]
+            print(f"- {failure['id']} [{category}]: {failure['diagnosis']}")
 
 
 def run_performance_analysis(sizes: Tuple[int, ...] = SIZES) -> None:

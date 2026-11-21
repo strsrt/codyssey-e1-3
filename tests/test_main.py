@@ -123,6 +123,10 @@ class JsonAnalysisTests(unittest.TestCase):
             abs(epsilon_case["cross_score"] - epsilon_case["x_score"]),
             main.TIE_EPSILON,
         )
+        self.assertEqual(epsilon_case["category"], "NUMERIC_COMPARISON")
+        self.assertIn("epsilon", epsilon_case["diagnosis"])
+        self.assertEqual(report["failed"][1]["category"], "LOGIC")
+        self.assertEqual(report["failed"][2]["category"], "LOGIC")
 
     def make_data(self):
         return {
@@ -167,6 +171,7 @@ class JsonAnalysisTests(unittest.TestCase):
             report = main.analyze_json_data(path)
         self.assertEqual((report["total"], report["passed"]), (2, 1))
         self.assertIn("크기", report["failed"][0]["reason"])
+        self.assertEqual(report["failed"][0]["category"], "DATA_SCHEMA")
 
     def test_filter_pattern_size_mismatch_is_a_case_failure(self):
         data = self.make_data()
@@ -176,6 +181,7 @@ class JsonAnalysisTests(unittest.TestCase):
             report = main.analyze_json_data(path)
         self.assertEqual((report["total"], report["passed"]), (2, 0))
         self.assertIn("필터 크기", report["failed"][0]["reason"])
+        self.assertEqual(report["failed"][0]["category"], "DATA_SCHEMA")
 
     def test_filter_label_and_missing_size_are_case_failures(self):
         data = self.make_data()
@@ -196,11 +202,19 @@ class JsonAnalysisTests(unittest.TestCase):
                     patch.object(main, "run_performance_analysis"), \
                     redirect_stdout(output):
                 main.run_json_mode()
-        self.assertIn("FAIL -", output.getvalue())
+        self.assertIn("FAIL [데이터/스키마]", output.getvalue())
         self.assertIn("전체 테스트: 2 / 통과: 1 / 실패: 1", output.getvalue())
 
 
 class InputAndPerformanceTests(unittest.TestCase):
+    def test_pattern_input_accepts_c_cross_and_case_insensitive_cross(self):
+        for entered, expected in (("c", "c"), ("cross", "cross"), (" Cross ", "cross")):
+            with patch("builtins.input", return_value=entered):
+                result = main.read_choice(
+                    "생성할 패턴 (C/Cross/X): ", ("c", "cross", "x")
+                )
+            self.assertEqual(result, expected)
+
     def test_application_handles_keyboard_interrupt(self):
         output = StringIO()
         with patch.object(main, "main", side_effect=KeyboardInterrupt), \
