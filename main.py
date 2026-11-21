@@ -386,5 +386,19 @@ def main() -> None:
         print("입력 형식 오류: 1 또는 2를 입력하세요.")
 
 
+def run_application() -> None:
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\n사용자 요청(Ctrl+C)으로 프로그램을 안전하게 종료합니다.")
+    except EOFError:
+        print("\n입력이 종료되어 프로그램을 안전하게 종료합니다.")
+    except Exception as error:
+        print(
+            "\n예기치 않은 오류가 발생해 프로그램을 종료합니다: "
+            f"{type(error).__name__}: {error}"
+        )
+
+
 if __name__ == "__main__":
-    main()
+    run_application()

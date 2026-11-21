@@ -62,11 +62,23 @@ class MatrixAndMacTests(unittest.TestCase):
 
 
 class JsonAnalysisTests(unittest.TestCase):
-    def test_repository_data_uses_required_schema_and_all_pass(self):
+    def test_repository_data_has_eight_cases_and_three_intentional_failures(self):
         report = main.analyze_json_data(main.DATA_FILE)
-        self.assertEqual(report["total"], 3)
-        self.assertEqual(report["passed"], 3)
-        self.assertEqual(report["failed"], [])
+        self.assertEqual(report["total"], 8)
+        self.assertEqual(report["passed"], 5)
+        self.assertEqual(
+            [case["id"] for case in report["failed"]],
+            ["size_5_2", "size_13_2", "size_25_2"],
+        )
+        self.assertTrue(all("reason" not in case for case in report["failed"]))
+        epsilon_case = next(
+            case for case in report["failed"] if case["id"] == "size_5_2"
+        )
+        self.assertEqual(epsilon_case["actual"], "UNDECIDED")
+        self.assertLess(
+            abs(epsilon_case["cross_score"] - epsilon_case["x_score"]),
+            main.TIE_EPSILON,
+        )
 
     def make_data(self):
         return {
@@ -145,6 +157,27 @@ class JsonAnalysisTests(unittest.TestCase):
 
 
 class InputAndPerformanceTests(unittest.TestCase):
+    def test_application_handles_keyboard_interrupt(self):
+        output = StringIO()
+        with patch.object(main, "main", side_effect=KeyboardInterrupt), \
+                redirect_stdout(output):
+            main.run_application()
+        self.assertIn("Ctrl+C", output.getvalue())
+
+    def test_application_handles_end_of_input(self):
+        output = StringIO()
+        with patch.object(main, "main", side_effect=EOFError), \
+                redirect_stdout(output):
+            main.run_application()
+        self.assertIn("입력이 종료", output.getvalue())
+
+    def test_application_reports_unexpected_errors(self):
+        output = StringIO()
+        with patch.object(main, "main", side_effect=RuntimeError("test failure")), \
+                redirect_stdout(output):
+            main.run_application()
+        self.assertIn("RuntimeError: test failure", output.getvalue())
+
     def test_read_matrix_retries_incorrect_row_length_and_bad_number(self):
         inputs = iter(["1 2", "a 2 3", "1 2 3", "4 5 6", "7 8 9"])
         output = StringIO()
