@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Tuple, Union
 
 DATA_FILE = Path(__file__).with_name("data.json")
 SIZES = (3, 5, 13, 25)
-PERFORMANCE_REPETITIONS = 1000
+PERFORMANCE_REPETITIONS = 10
 TIE_EPSILON = 1e-9
 CASE_KEY = re.compile(r"^size_(\d+)_(.+)$")
 INPUT_FORMAT_ERROR = (
@@ -28,6 +28,9 @@ class Matrix:
     """Square numeric matrix stored in row-major one-dimensional form."""
 
     def __init__(self, values: Any):
+        if isinstance(values, dict):
+            self.size, self._values = self._expand_compact(values)
+            return
         if not isinstance(values, list) or not values:
             raise ValueError("행렬은 비어 있지 않은 2차원 배열이어야 합니다.")
         if any(not isinstance(row, list) for row in values):
@@ -39,6 +42,42 @@ class Matrix:
             raise ValueError("행렬 값은 유한한 숫자여야 합니다.")
         self.size = size
         self._values = [value for row in values for value in row]
+
+    @staticmethod
+    def _expand_compact(values: Dict[str, Any]) -> Tuple[int, List[Union[int, float]]]:
+        size = values.get("size")
+        fill = values.get("fill")
+        if not isinstance(size, int) or isinstance(size, bool) or size <= 0:
+            raise ValueError("압축 행렬의 size는 양의 정수여야 합니다.")
+        if not _is_number(fill):
+            raise ValueError("압축 행렬의 fill은 유한한 숫자여야 합니다.")
+        if set(values) - {"size", "fill", "overrides"}:
+            raise ValueError("압축 행렬에는 size, fill, overrides만 지정할 수 있습니다.")
+
+        matrix_values = [fill] * (size * size)
+        overrides = values.get("overrides", [])
+        if not isinstance(overrides, list):
+            raise ValueError("압축 행렬의 overrides는 배열이어야 합니다.")
+        seen = set()
+        for override in overrides:
+            if not isinstance(override, list) or len(override) != 3:
+                raise ValueError("각 override는 [row, column, value] 형식이어야 합니다.")
+            row, column, value = override
+            if (
+                not isinstance(row, int) or isinstance(row, bool)
+                or not isinstance(column, int) or isinstance(column, bool)
+            ):
+                raise ValueError("override의 행과 열은 정수여야 합니다.")
+            if not (0 <= row < size and 0 <= column < size):
+                raise ValueError("override의 행 또는 열이 행렬 범위를 벗어났습니다.")
+            if not _is_number(value):
+                raise ValueError("override 값은 유한한 숫자여야 합니다.")
+            position = row * size + column
+            if position in seen:
+                raise ValueError("같은 위치에 중복된 override가 있습니다.")
+            seen.add(position)
+            matrix_values[position] = value
+        return size, matrix_values
 
     def _check_index(self, row: int, column: int) -> None:
         if not (0 <= row < self.size and 0 <= column < self.size):
@@ -126,6 +165,22 @@ def decide(score_a: float, score_b: float) -> str:
     return "A" if score_a > score_b else "B"
 
 
+def decide_user_mode(score_a: float, score_b: float) -> str:
+    result = decide(score_a, score_b)
+    if result == "UNDECIDED":
+        return "판정 불가"
+    return result
+
+
+def decide_json_mode(cross_score: float, x_score: float) -> str:
+    result = decide(cross_score, x_score)
+    if result == "A":
+        return "Cross"
+    if result == "B":
+        return "X"
+    return "UNDECIDED"
+
+
 def read_matrix(size: int, label: str) -> Matrix:
     print(f"{label} 행렬을 한 줄씩 입력하세요. (각 행 {size}개 숫자, 공백 구분)")
     values = []
@@ -168,12 +223,11 @@ def run_user_mode() -> None:
 
     score_a, time_a = timed_mac(pattern, filter_a)
     score_b, time_b = timed_mac(pattern, filter_b)
-    decision = decide(score_a, score_b)
-    display = {"A": "A", "B": "B", "UNDECIDED": "판정 불가"}[decision]
+    decision = decide_user_mode(score_a, score_b)
     print("\n[3x3 판정]")
     print(f"필터 A 점수: {score_a:g}, 연산 시간: {time_a:.6f} ms")
     print(f"필터 B 점수: {score_b:g}, 연산 시간: {time_b:.6f} ms")
-    print(f"판정: {display}")
+    print(f"판정: {decision}")
     run_performance_analysis((3,))
 
 
@@ -253,8 +307,7 @@ def _analyze_case(
 
     cross_score = mac(pattern, filters["Cross"])
     x_score = mac(pattern, filters["X"])
-    winner = decide(cross_score, x_score)
-    actual = "Cross" if winner == "A" else "X" if winner == "B" else winner
+    actual = decide_json_mode(cross_score, x_score)
     return {
         "id": case_id,
         "cross_score": cross_score,

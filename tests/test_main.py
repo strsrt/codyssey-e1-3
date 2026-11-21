@@ -17,6 +17,24 @@ class MatrixAndMacTests(unittest.TestCase):
         self.assertEqual(matrix._values, [1, 2, 3, 4, 5, 10.5, 7, 8, 9])
         self.assertEqual(matrix.to_2d()[1][2], 10.5)
 
+    def test_matrix_expands_compact_fill_and_cell_overrides(self):
+        matrix = main.Matrix({
+            "size": 3,
+            "fill": 0.0,
+            "overrides": [[1, 2, 5e-10]],
+        })
+        self.assertEqual(matrix.get_value(0, 0), 0.0)
+        self.assertEqual(matrix.get_value(1, 2), 5e-10)
+        self.assertEqual(matrix.to_2d()[1][2], 5e-10)
+
+    def test_matrix_rejects_invalid_compact_override(self):
+        with self.assertRaisesRegex(ValueError, "범위를 벗어났습니다"):
+            main.Matrix({
+                "size": 2,
+                "fill": 0.0,
+                "overrides": [[2, 0, 1.0]],
+            })
+
     def test_matrix_supports_required_sizes(self):
         for size in (3, 5, 13, 25):
             matrix = main.Matrix([[0] * size for _ in range(size)])
@@ -31,7 +49,9 @@ class MatrixAndMacTests(unittest.TestCase):
     def test_mac_calculates_sum_with_loops(self):
         pattern = main.Matrix([[1, 2], [3, 4]])
         filter_matrix = main.Matrix([[4, 3], [2, 1]])
-        self.assertEqual(main.mac(pattern, filter_matrix), 20.0)
+        score = main.mac(pattern, filter_matrix)
+        self.assertEqual(score, 20.0)
+        self.assertIsInstance(score, float)
         self.assertEqual(
             main.mac_2d(pattern.to_2d(), filter_matrix.to_2d()),
             main.mac(pattern, filter_matrix),
@@ -44,6 +64,19 @@ class MatrixAndMacTests(unittest.TestCase):
     def test_decide_uses_strict_epsilon_boundary(self):
         self.assertEqual(main.decide(1.0, 1.0 + 0.5e-9), "UNDECIDED")
         self.assertEqual(main.decide(1.0, 1.0 + 2e-9), "B")
+
+    def test_modes_format_epsilon_ties_according_to_their_policies(self):
+        self.assertEqual(main.decide_user_mode(1.0, 1.0), "판정 불가")
+        self.assertEqual(main.decide_json_mode(1.0, 1.0), "UNDECIDED")
+        self.assertEqual(main.decide_user_mode(2.0, 1.0), "A")
+        self.assertEqual(main.decide_json_mode(2.0, 1.0), "Cross")
+
+    def test_normalize_label_centralizes_alias_case_and_whitespace(self):
+        self.assertEqual(main.normalize_label(" + ", "expected"), "Cross")
+        self.assertEqual(main.normalize_label(" cRoSs ", "filter"), "Cross")
+        self.assertEqual(main.normalize_label(" X ", "expected"), "X")
+        with self.assertRaisesRegex(ValueError, "정규화할 수 없습니다"):
+            main.normalize_label("circle", "expected")
 
     def test_generator_builds_cross_and_x_for_multiple_sizes(self):
         for size in (3, 5, 13, 25):
@@ -62,6 +95,17 @@ class MatrixAndMacTests(unittest.TestCase):
 
 
 class JsonAnalysisTests(unittest.TestCase):
+    def test_repository_data_uses_explicit_float_rows(self):
+        data = json.loads(main.DATA_FILE.read_text(encoding="utf-8"))
+        for filters in data["filters"].values():
+            for matrix in filters.values():
+                self.assertIsInstance(matrix, list)
+                self.assertIsInstance(matrix[0], list)
+                self.assertIsInstance(matrix[0][0], float)
+        epsilon_input = data["patterns"]["size_5_2"]["input"]
+        self.assertIsInstance(epsilon_input, list)
+        self.assertEqual(epsilon_input[2][2], 5e-10)
+
     def test_repository_data_has_eight_cases_and_three_intentional_failures(self):
         report = main.analyze_json_data(main.DATA_FILE)
         self.assertEqual(report["total"], 8)
@@ -188,6 +232,7 @@ class InputAndPerformanceTests(unittest.TestCase):
         self.assertEqual(output.getvalue().count(main.INPUT_FORMAT_ERROR), 2)
 
     def test_performance_compares_same_data_with_equal_repetitions(self):
+        self.assertEqual(main.PERFORMANCE_REPETITIONS, 10)
         original_mac = main.mac
         original_mac_2d = main.mac_2d
         flat_calls = []
