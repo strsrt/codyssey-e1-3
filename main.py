@@ -186,6 +186,10 @@ def decide_json_mode(cross_score: float, x_score: float) -> str:
     return "UNDECIDED"
 
 
+def format_score(score: float) -> str:
+    return repr(float(score))
+
+
 def diagnose_case_failure(result: Dict[str, Any]) -> Dict[str, str]:
     if "reason" in result:
         return {
@@ -201,8 +205,8 @@ def diagnose_case_failure(result: Dict[str, Any]) -> Dict[str, str]:
         return {
             "category": "NUMERIC_COMPARISON",
             "diagnosis": (
-                f"수치 비교 문제: 점수 차이 {score_difference:g}가 "
-                f"epsilon {TIE_EPSILON:g} 미만이라 동점 처리됐습니다. "
+                f"수치 비교 문제: 점수 차이 {format_score(score_difference)}가 "
+                f"epsilon {format_score(TIE_EPSILON)} 미만이라 동점 처리됐습니다. "
                 "입력 값의 정밀도와 epsilon 기준, expected를 확인하세요."
             ),
         }
@@ -210,8 +214,8 @@ def diagnose_case_failure(result: Dict[str, Any]) -> Dict[str, str]:
     return {
         "category": "LOGIC",
         "diagnosis": (
-            f"판정 불일치: Cross={result['cross_score']:g}, "
-            f"X={result['x_score']:g}, actual={result['actual']}, "
+            f"판정 불일치: Cross={format_score(result['cross_score'])}, "
+            f"X={format_score(result['x_score'])}, actual={result['actual']}, "
             f"expected={result['expected']}입니다. "
             "필터와 패턴의 의미, MAC 점수 계산·라벨 연결, expected를 확인하세요."
         ),
@@ -266,8 +270,8 @@ def run_user_mode() -> None:
     score_b, time_b = timed_mac(pattern, filter_b)
     decision = decide_user_mode(score_a, score_b)
     print("\n[3x3 판정]")
-    print(f"필터 A 점수: {score_a:g}, 연산 시간: {time_a:.6f} ms")
-    print(f"필터 B 점수: {score_b:g}, 연산 시간: {time_b:.6f} ms")
+    print(f"필터 A 점수: {format_score(score_a)}, 연산 시간: {time_a:.6f} ms")
+    print(f"필터 B 점수: {format_score(score_b)}, 연산 시간: {time_b:.6f} ms")
     print(f"판정: {decision}")
     run_performance_analysis((3,))
 
@@ -416,8 +420,8 @@ def run_json_mode() -> None:
         else:
             status = "PASS" if result["passed"] else "FAIL"
             print(
-                f"{result['id']}: Cross 점수={result['cross_score']:g}, "
-                f"X 점수={result['x_score']:g}, 판정={result['actual']}, "
+                f"{result['id']}: Cross 점수={format_score(result['cross_score'])}, "
+                f"X 점수={format_score(result['x_score'])}, 판정={result['actual']}, "
                 f"expected={result['expected']} -> {status}"
             )
 

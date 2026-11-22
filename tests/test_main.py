@@ -61,6 +61,10 @@ class MatrixAndMacTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "크기"):
             main.mac(main.Matrix([[1]]), main.Matrix([[1, 2], [3, 4]]))
 
+    def test_score_output_format_is_float(self):
+        self.assertEqual(main.format_score(20), "20.0")
+        self.assertEqual(main.format_score(5e-10), "5e-10")
+
     def test_decide_uses_strict_epsilon_boundary(self):
         self.assertEqual(main.decide(1.0, 1.0 + 0.5e-9), "UNDECIDED")
         self.assertEqual(main.decide(1.0, 1.0 + 2e-9), "B")
